@@ -1,0 +1,43 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+cdk.out/
+.cdk.staging/
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Coverage (Jest)
+coverage/
+
+# Temporary / misc
+*.tmp
+*.swp
+
+# Zip / artifacts
+*.zip
+
+# PDFs (optional - depends on your use case)
+# dummy.pdf
+
+# Keep config files
+!jest.config.js
