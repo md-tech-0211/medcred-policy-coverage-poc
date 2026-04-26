@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+
 import { FileText, Upload, Brain, Shield, CheckCircle, AlertCircle, Loader2, X } from "lucide-react"
+
 
 interface AnalysisResult {
   files_processed: number
@@ -59,9 +61,11 @@ export function DocumentAnalyzer() {
   const [files, setFiles] = useState<File[]>([])
   const [email, setEmail] = useState("")
   const [query, setQuery] = useState("")
+  const [policyName, setPolicyName] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [policyFile, setPolicyFile] = useState<File | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -94,8 +98,15 @@ export function DocumentAnalyzer() {
       if (email.trim()) {
         formData.append("email", email)
       }
+      if (policyName.trim()) {
+        formData.append("policy_name", policyName)
+      }
+      if (policyFile) {
+        formData.append("policy_file", policyFile)
+      }
 
       formData.append("query", query)
+      
 
       const response = await fetch("https://er4opxffs5xstjhvesekhfg6fu0dnaof.lambda-url.us-east-1.on.aws/", {
         method: "POST",
@@ -168,10 +179,13 @@ export function DocumentAnalyzer() {
   const renderAgentResponse = (responseText: string) => {
     try {
       // 1. Clean the string just in case the backend sends markdown again
-      const cleanStr = responseText.replace(/```json\n?|\n?```/g, '').trim();
+      //const cleanStr = responseText.replace(/```json\n?|\n?```/g, '').trim();
+
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(jsonMatch[0]);
       
       // 2. Parse the JSON
-      const parsed = JSON.parse(cleanStr);
+      //const parsed = JSON.parse(cleanStr);
 
       // 3. If it successfully parsed and has our expected fields, render it beautifully
       if (parsed.covered !== undefined) {
@@ -291,6 +305,28 @@ export function DocumentAnalyzer() {
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
+
+<div className="grid grid-cols-2 gap-4">
+  <div className="space-y-2">
+    <Label htmlFor="policyName">Policy Name (If new)</Label>
+    <Input 
+      id="policyName" 
+      placeholder="e.g., HDFC-Gold" 
+      value={policyName} 
+      onChange={(e) => setPolicyName(e.target.value)} 
+    />
+  </div>
+  <div className="space-y-2">
+    <Label htmlFor="policyFile">Upload Master Policy PDF</Label>
+    <Input
+      id="policyFile"
+      type="file"
+      accept=".pdf"
+      onChange={(e) => setPolicyFile(e.target.files?.[0] || null)}
+      className="cursor-pointer"
+    />
+  </div>
+</div>
 
               <div className="space-y-2">
                 <Label htmlFor="query">Insurance Query</Label>

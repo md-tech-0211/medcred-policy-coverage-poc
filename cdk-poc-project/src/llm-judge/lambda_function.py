@@ -36,6 +36,7 @@ JUDGE_MODEL_ID = 'us.anthropic.claude-sonnet-4-6'
 
 # Knowledge Base Configuration
 KNOWLEDGE_BASE_ID = os.environ.get("KNOWLEDGE_BASE_ID")  # Add your KB ID
+DATA_SOURCE_ID = os.environ.get("DATA_SOURCE_ID")
 
 
 
@@ -527,15 +528,19 @@ Confidence heuristic:
 def process_multiple_files(parts, boundary):
     """Process multiple files from multipart form data."""
     import re
+    import time
+    import uuid # ensure uuid is available
     files = []
+    policy_file = None # NEW: variable to hold the master policy
     query = "No query found"
     email = None
+    policy_name = None
     
     for part in parts:
         if b'Content-Disposition' in part:
             header_text = part.split(b'\r\n\r\n', 1)[0].decode()
             
-            # Handle multiple files with different naming patterns
+            # 1. Handle Medical Files
             if 'name="files[]"' in header_text or 'name="file"' in header_text or 'name="files"' in header_text:
                 match = re.search(r'filename="(.+?)"', header_text)
                 if match:
@@ -555,13 +560,36 @@ def process_multiple_files(parts, boundary):
                         })
                     else:
                         logger.warning(f"Unsupported file type: .{ext} for file {original_filename}")
+
+            # 2. NEW: Handle the Master Policy PDF
+            elif 'name="policy_file"' in header_text:
+                match = re.search(r'filename="(.+?)"', header_text)
+                if match:
+                    original_filename = match.group(1)
+                    ext = original_filename.lower().split('.')[-1]
+                    # Save it in a different prefix 'policies/' to keep S3 clean
+                    file_name = f"policies/{uuid.uuid4()}.{ext}" 
+                    _, file_body = part.split(b'\r\n\r\n', 1)
+                    if file_body.endswith(b'\r\n'):
+                        file_body = file_body[:-2]
+                    
+                    policy_file = {
+                        'filename': file_name,
+                        'original_name': original_filename,
+                        'content': file_body,
+                        'extension': ext
+                    }
             
+            # 3. Handle Text Fields
             elif 'name="query"' in header_text:
                 query = part.split(b'\r\n\r\n', 1)[-1].rsplit(b'\r\n')[0].decode("utf-8").strip()
             elif 'name="email"' in header_text:
                 email = part.split(b'\r\n\r\n', 1)[-1].rsplit(b'\r\n')[0].decode("utf-8").strip()
+            elif 'name="policy_name"' in header_text:
+                policy_name = part.split(b'\r\n\r\n', 1)[-1].rsplit(b'\r\n')[0].decode("utf-8").strip() 
     
-    return files, query, email
+    # NEW: Return policy_file along with everything else
+    return files, query, email, policy_name, policy_file
 
 
 def process_multiple_documents_with_textract(files):
@@ -641,6 +669,10 @@ def combine_multiple_documents(cleaned_texts, file_metadata):
 
 def lambda_handler(event, context):
     import re
+    import time
+    import base64
+    import json
+    
     try:
         # ---- Parse Multipart Upload ----
         content_type = event['headers'].get('content-type') or event['headers'].get('Content-Type')
@@ -651,37 +683,39 @@ def lambda_handler(event, context):
         boundary = content_type.split("boundary=")[-1]
         parts = body.split(bytes(f"--{boundary}", "utf-8"))
 
-        # Process multiple files
-        files, query, email = process_multiple_files(parts, boundary)
-        logger.info(f"Received event with {len(files)} files, query: {query}")
+        # 1. Process multiple files and unpack all 5 variables
+        files, query, email, form_policy_name, policy_file = process_multiple_files(parts, boundary)
+        logger.info(f"Received event with {len(files)} medical files, query: {query}")
 
         # Validate that we have at least a query
         if not query or query == "No query found":
             logger.error("No query found in the request.")
             return {"statusCode": 400, "body": "Query is required."}
         
-        # Validate that we have at least one file
+        # Validate that we have at least one medical file
         if not files:
-            logger.error("No files provided in the request.")
-            return {"statusCode": 400, "body": "At least one file is required."}
+            logger.error("No medical files provided in the request.")
+            return {"statusCode": 400, "body": "At least one medical file is required."}
         
-        logger.info(f"Processing {len(files)} files for query: {query}")
-        
-        # Lookup policy name from DynamoDB if email provided
-        policy_name = None
+        policy_name = form_policy_name
+
+        # 2. FLOW 1 & 2: DYNAMODB AUTO-LEARNING & LOOKUP
         if email and DDB_TABLE:
             try:
                 table = dynamodb.Table(DDB_TABLE)
-                ddb_resp = table.query(
-                    KeyConditionExpression=Key("email").eq(email)
-                )
-                items = ddb_resp.get("Items", [])
-                if items:
-                    # Get the exact policy name from DynamoDB - this should match your KB metadata
-                    policy_name = items[0].get('policyName') or items[0].get('policy_name')
-                    logger.info(f"Retrieved policy from DynamoDB for {email}: {policy_name}")
+                if policy_name:
+                    # FLOW 1 (New User): Save the new mapping to DynamoDB automatically
+                    logger.info(f"Saving new mapping to DynamoDB: {email} -> {policy_name}")
+                    table.put_item(Item={'email': email, 'policy_name': policy_name})
+                else:
+                    # FLOW 2 (Returning User): Lookup the mapping if policy_name wasn't typed in
+                    ddb_resp = table.query(KeyConditionExpression=Key("email").eq(email))
+                    items = ddb_resp.get("Items", [])
+                    if items:
+                        policy_name = items[0].get('policy_name') or items[0].get('policyName')
+                        logger.info(f"Auto-fetched policy from DB: {policy_name}")
             except Exception as e:
-                logger.warning(f"DynamoDB lookup failed for email {email}: {e}")
+                logger.warning(f"DynamoDB operation failed: {e}")
 
         # Create or get user and session
         user_id = None
@@ -691,19 +725,70 @@ def lambda_handler(event, context):
             session_id = create_user_session(user_id)
             logger.info(f"Created session {session_id} for user {user_id}")
 
-        # Process multiple documents
+        # 3. FLOW 1: UPLOAD NEW MASTER POLICY & POLL SYNC
+        if policy_file and policy_name and KNOWLEDGE_BASE_ID and DATA_SOURCE_ID:
+            logger.info("New master policy document detected. Uploading and syncing...")
+            
+            bedrock_client = boto3.client('bedrock-agent')
+            
+            # A. Upload Policy PDF to S3
+            s3.put_object(
+                Bucket=S3_BUCKET_NAME, 
+                Key=policy_file['filename'], 
+                Body=policy_file['content']
+            )
+            
+            # B. Upload Metadata JSON right next to it
+            metadata = {
+                "metadataAttributes": {
+                    "policy_name": {
+                        "value": {"type": "STRING", "stringValue": policy_name}, 
+                        "includeForEmbedding": False
+                    }
+                }
+            }
+            s3.put_object(
+                Bucket=S3_BUCKET_NAME, 
+                Key=f"{policy_file['filename']}.metadata.json", 
+                Body=json.dumps(metadata)
+            )
+            
+            # C. Trigger & Poll the Ingestion Job (Race Condition Fix)
+            try:
+                job_resp = bedrock_client.start_ingestion_job(
+                    knowledgeBaseId=KNOWLEDGE_BASE_ID, 
+                    dataSourceId=DATA_SOURCE_ID
+                )
+                job_id = job_resp['ingestionJob']['ingestionJobId']
+                logger.info(f"Started Bedrock ingestion job: {job_id}")
+                
+                # Poll for up to 15 seconds so Bedrock is ready BEFORE agents query it
+                for _ in range(15):
+                    status_resp = bedrock_client.get_ingestion_job(
+                        knowledgeBaseId=KNOWLEDGE_BASE_ID, 
+                        dataSourceId=DATA_SOURCE_ID, 
+                        ingestionJobId=job_id
+                    )
+                    status = status_resp['ingestionJob']['status']
+                    if status in ['COMPLETE', 'FAILED']:
+                        logger.info(f"Sync finished with status: {status}")
+                        break
+                    time.sleep(1)
+            except Exception as e:
+                logger.error(f"Failed to sync Knowledge Base: {e}")
+
+        # 4. Process multiple medical documents
         extracted_texts, cleaned_texts, file_metadata = process_multiple_documents_with_textract(files)
         
         # Combine all documents into single context
         combined_text = combine_multiple_documents(cleaned_texts, file_metadata)
         logger.info(f"Combined text length: {len(combined_text)} characters")
 
-        # NEW: Retrieve policy-specific context from Knowledge Base
+        # 5. Retrieve policy-specific context from Knowledge Base
         policy_context = None
         if policy_name and KNOWLEDGE_BASE_ID:
             logger.info(f"Retrieving policy context for: {policy_name}")
             policy_context = retrieve_policy_context(query, policy_name)
-            logger.info(f"Retrieved policy context: {policy_context}...")
             if policy_context:
                 logger.info(f"Retrieved policy context: {policy_context[:200]}...")
 
@@ -711,14 +796,13 @@ def lambda_handler(event, context):
         request_id = None
         file_metadata_json = None
         if session_id:
-            # Store combined text and file metadata
             file_names = [f['filename'] for f in file_metadata]
             raw_texts = " | ".join(extracted_texts)
             cleaned_texts_combined = " | ".join(cleaned_texts)
             
             request_id = create_user_request(
                 session_id, query, 
-                file_names[0] if file_names else None,  # Primary file
+                file_names[0] if file_names else None, 
                 raw_texts, cleaned_texts_combined, 
                 policy_name, policy_context
             )
@@ -726,19 +810,16 @@ def lambda_handler(event, context):
             
             # Store file metadata as JSON in policy_context field
             file_metadata_json = store_file_metadata_in_json(request_id, file_metadata, extracted_texts, cleaned_texts)
-            logger.info(f"Stored metadata for {len(file_metadata)} files")
 
         # ---- Call both Agents with Combined Document Context ----
         logger.info("Calling agents with combined document context...")
         agent1_response = call_agent_with_policy_context(
             AGENT1_ID, AGENT1_ALIAS_ID, query, combined_text, policy_name, policy_context
         )
-        logger.info(f"Agent 1 response: {agent1_response}")
         
         agent2_response = call_agent_with_policy_context(
             AGENT2_ID, AGENT2_ALIAS_ID, query, combined_text, policy_name, policy_context
         )
-        logger.info(f"Agent 2 response: {agent2_response}")
 
         # Store agent responses
         agent1_response_id = None
@@ -746,17 +827,14 @@ def lambda_handler(event, context):
         if request_id:
             agent1_response_id = insert_agent_response(request_id, "agent1", agent1_response)
             agent2_response_id = insert_agent_response(request_id, "agent2", agent2_response)
-            logger.info(f"Agent responses stored: {agent1_response_id}, {agent2_response_id}")
 
         # ---- Call Judge ----
         judge_response = call_judge(query, agent1_response, agent2_response)
-        logger.info(f"Judge response: {judge_response}")
         
         # Store judge response
         judge_id = None
         if request_id and agent1_response_id and agent2_response_id:
             judge_id = insert_judge_response(request_id, agent1_response_id, agent2_response_id, judge_response)
-            logger.info(f"Judge response stored with ID: {judge_id}")
 
         return {
             'statusCode': 200,
