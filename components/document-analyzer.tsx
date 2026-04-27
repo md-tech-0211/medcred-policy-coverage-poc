@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+
 import { FileText, Upload, Brain, Shield, CheckCircle, AlertCircle, Loader2, X } from "lucide-react"
+
 
 interface AnalysisResult {
   files_processed: number
@@ -59,9 +61,11 @@ export function DocumentAnalyzer() {
   const [files, setFiles] = useState<File[]>([])
   const [email, setEmail] = useState("")
   const [query, setQuery] = useState("")
+  const [policyName, setPolicyName] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [policyFile, setPolicyFile] = useState<File | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -94,10 +98,17 @@ export function DocumentAnalyzer() {
       if (email.trim()) {
         formData.append("email", email)
       }
+      if (policyName.trim()) {
+        formData.append("policy_name", policyName)
+      }
+      if (policyFile) {
+        formData.append("policy_file", policyFile)
+      }
 
       formData.append("query", query)
+      
 
-      const response = await fetch("https://md3qpv3zcsn5evgofzzfo4ahre0qjrbm.lambda-url.us-west-2.on.aws/", {
+      const response = await fetch("https://er4opxffs5xstjhvesekhfg6fu0dnaof.lambda-url.us-east-1.on.aws/", {
         method: "POST",
         body: formData,
       })
@@ -164,6 +175,62 @@ export function DocumentAnalyzer() {
 
     return null
   }
+
+  const renderAgentResponse = (responseText: string) => {
+    try {
+      // 1. Clean the string just in case the backend sends markdown again
+      //const cleanStr = responseText.replace(/```json\n?|\n?```/g, '').trim();
+
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // 2. Parse the JSON
+      //const parsed = JSON.parse(cleanStr);
+
+      // 3. If it successfully parsed and has our expected fields, render it beautifully
+      if (parsed.covered !== undefined) {
+        const isCovered = parsed.covered;
+        const reasoning = parsed.explanation || parsed.detailed_reasoning;
+        const citations = parsed.evidence || parsed.citations || [];
+
+        return (
+          <div className="space-y-3 bg-muted/20 p-4 rounded-lg border border-border/50">
+            <p className="text-sm font-medium">
+              Status: <span className={isCovered ? "text-accent" : "text-destructive"}>
+                {isCovered ? "Covered" : "Not Covered"}
+              </span>
+              {parsed.confidence && ` • Confidence: ${Math.round(parsed.confidence * 100)}%`}
+            </p>
+            
+            {reasoning && (
+              <p className="text-sm text-muted-foreground leading-relaxed">{reasoning}</p>
+            )}
+            
+            {citations.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Citations & Evidence</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  {citations.map((cite: any, i: number) => (
+                    <li key={i} className="text-xs text-muted-foreground leading-relaxed">
+                      {/* Handles Agent 1's string array AND Agent 2's object array */}
+                      {typeof cite === 'string' ? cite : <strong>{cite.section}:</strong>} {typeof cite !== 'string' && cite.text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      }
+    } catch (e) {
+      // If it fails to parse (e.g. the Agent asked a clarifying question instead of JSON)
+      // It will safely fallback to the standard text rendering below
+    }
+
+    // Fallback for standard conversational text
+    return <p className="text-sm leading-relaxed whitespace-pre-wrap">{responseText}</p>;
+  }
+  
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -238,6 +305,28 @@ export function DocumentAnalyzer() {
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
+
+<div className="grid grid-cols-2 gap-4">
+  <div className="space-y-2">
+    <Label htmlFor="policyName">Policy Name (If new)</Label>
+    <Input 
+      id="policyName" 
+      placeholder="e.g., HDFC-Gold" 
+      value={policyName} 
+      onChange={(e) => setPolicyName(e.target.value)} 
+    />
+  </div>
+  <div className="space-y-2">
+    <Label htmlFor="policyFile">Upload Master Policy PDF</Label>
+    <Input
+      id="policyFile"
+      type="file"
+      accept=".pdf"
+      onChange={(e) => setPolicyFile(e.target.files?.[0] || null)}
+      className="cursor-pointer"
+    />
+  </div>
+</div>
 
               <div className="space-y-2">
                 <Label htmlFor="query">Insurance Query</Label>
@@ -385,10 +474,10 @@ export function DocumentAnalyzer() {
                     <div className="space-y-4">
                       {result.agent1_response && (
                         <div>
-                          <div className="flex items-center gap-2 mb-2">
+                          <div className="flex items-center gap-2 mb-3">
                             <Badge variant="secondary">Agent 1</Badge>
                           </div>
-                          <p className="text-sm leading-relaxed">{result.agent1_response}</p>
+                          {renderAgentResponse(result.agent1_response)}
                         </div>
                       )}
 
@@ -396,10 +485,10 @@ export function DocumentAnalyzer() {
 
                       {result.agent2_response && (
                         <div>
-                          <div className="flex items-center gap-2 mb-2">
+                          <div className="flex items-center gap-2 mb-3">
                             <Badge variant="secondary">Agent 2</Badge>
                           </div>
-                          <p className="text-sm leading-relaxed">{result.agent2_response}</p>
+                          {renderAgentResponse(result.agent2_response)}
                         </div>
                       )}
 
