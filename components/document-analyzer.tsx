@@ -178,14 +178,11 @@ export function DocumentAnalyzer() {
 
   const renderAgentResponse = (responseText: string) => {
     try {
-      // 1. Clean the string just in case the backend sends markdown again
-      //const cleanStr = responseText.replace(/```json\n?|\n?```/g, '').trim();
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error("No JSON found")
+      const parsed = JSON.parse(jsonMatch[0])
 
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      const parsed = JSON.parse(jsonMatch[0]);
-      
       // 2. Parse the JSON
-      //const parsed = JSON.parse(cleanStr);
 
       // 3. If it successfully parsed and has our expected fields, render it beautifully
       if (parsed.covered !== undefined) {
@@ -233,23 +230,24 @@ export function DocumentAnalyzer() {
   
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* Header */}
-      <div className="text-center mb-12">
-        <div className="flex items-center justify-center gap-3 mb-4">
-          <div className="p-3 rounded-lg bg-primary/10">
-            <FileText className="h-8 w-8 text-primary" />
+    <div className="container mx-auto px-4 py-12 max-w-6xl relative z-10">
+      <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-slate-950/95 to-transparent pointer-events-none" />
+      <div className="absolute -right-24 top-24 h-72 w-72 rounded-full bg-primary/15 blur-3xl opacity-80 pointer-events-none" />
+      <div className="absolute -left-24 bottom-24 h-80 w-80 rounded-full bg-accent/15 blur-3xl opacity-80 pointer-events-none" />
+      <div className="text-center mb-12 relative z-20 animate-appear-up">
+        <div className="inline-flex items-center justify-center gap-3 mb-4 px-6 py-3 rounded-full bg-white/5 border border-white/10 shadow-lg shadow-slate-950/20 backdrop-blur-xl">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-amber-400/20 to-orange-200/20 shadow-sm shadow-emerald-300/20">
+            <FileText className="h-8 w-8 text-emerald-300" />
           </div>
-          <h1 className="text-4xl font-bold text-balance">Medical Document Analyzer</h1>
+          <h1 className="text-5xl sm:text-6xl font-semibold tracking-tight text-foreground">Medical Document Analyzer</h1>
         </div>
-        <p className="text-xl text-muted-foreground text-balance max-w-2xl mx-auto">
-          Upload multiple prescriptions or medical documents to get AI-powered insurance coverage analysis
+        <p className="text-lg sm:text-xl text-muted-foreground text-balance max-w-3xl mx-auto leading-relaxed">
+          Upload multiple prescriptions or medical documents to get AI-powered insurance coverage analysis.
         </p>
       </div>
-
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-2 gap-10 relative z-20">
         {/* Upload Form */}
-        <Card className="border-border/50">
+        <Card className="border border-white/10 bg-slate-900/95 shadow-[0_35px_90px_rgba(15,23,42,0.2)] backdrop-blur-2xl transition-transform duration-300 hover:-translate-y-1 animate-appear-up">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Upload className="h-5 w-5" />
@@ -267,14 +265,14 @@ export function DocumentAnalyzer() {
                   accept="image/*,.pdf"
                   multiple
                   onChange={handleFileChange}
-                  className="cursor-pointer"
+                  className="cursor-pointer ring-1 ring-white/10 transition duration-300 hover:ring-primary/40"
                 />
                 {files.length > 0 && (
                   <div className="space-y-2 mt-3">
                     <Label className="text-sm text-muted-foreground">Selected Files ({files.length})</Label>
-                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                    <div className="space-y-2 max-h-32 overflow-y-auto border border-white/10 rounded-3xl p-2 bg-white/5 shadow-inner shadow-slate-950/10">
                       {files.map((file, index) => (
-                        <div key={index} className="flex items-center justify-between gap-2 p-2 bg-muted/30 rounded-md">
+                        <div key={index} className="flex items-center justify-between gap-2 p-3 bg-white/5 border border-white/10 rounded-2xl shadow-sm shadow-slate-950/10">
                           <div className="flex items-center gap-2 text-sm">
                             <FileText className="h-4 w-4" />
                             <span className="truncate">{file.name}</span>
@@ -339,7 +337,11 @@ export function DocumentAnalyzer() {
                 />
               </div>
 
-              <Button type="submit" className="w-full" disabled={files.length === 0 || !query || isAnalyzing}>
+              <Button
+                type="submit"
+                className="w-full bg-gradient-to-r from-emerald-500 via-amber-500 to-orange-400 text-white shadow-[0_18px_60px_rgba(245,158,11,0.22)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_70px_rgba(245,158,11,0.28)] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={files.length === 0 || !query || isAnalyzing}
+              >
                 {isAnalyzing ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -357,9 +359,27 @@ export function DocumentAnalyzer() {
         </Card>
 
         {/* Results */}
-        <div className="space-y-6">
+        <div className="space-y-6 relative z-20 animate-appear-up">
+          {isAnalyzing && !result && (
+            <Card className="border border-white/10 bg-slate-900/90 shadow-[0_26px_80px_rgba(15,23,42,0.16)] animate-fade-in">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin text-amber-300" />
+                  Analyzing Documents
+                </CardTitle>
+                <CardDescription>Working on your upload and preparing the best coverage summary.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 py-2">
+                  <div className="h-3 w-3/4 rounded-full bg-white/10 animate-pulse" />
+                  <div className="h-3 w-full rounded-full bg-white/10 animate-pulse delay-75" />
+                  <div className="h-3 w-5/6 rounded-full bg-white/10 animate-pulse delay-150" />
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {error && (
-            <Card className="border-destructive/50 bg-destructive/5">
+            <Card className="border-destructive/50 bg-[#7c2d12]/10 shadow-lg shadow-destructive/10">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-2 text-destructive">
                   <AlertCircle className="h-5 w-5" />
@@ -373,7 +393,7 @@ export function DocumentAnalyzer() {
             <div className="space-y-8">
               {/* Processing Summary */}
               {result.file_metadata_json?.processing_summary && (
-                <Card className="border-border/50">
+                <Card className="border-border/50 bg-[#0f1720]/90 shadow-[0_24px_70px_rgba(15,23,42,0.16)] transition-transform duration-300 hover:-translate-y-0.5">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <CheckCircle className="h-5 w-5 text-accent" />
@@ -381,7 +401,7 @@ export function DocumentAnalyzer() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="grid grid-cols-3 gap-4 text-center animate-fade-in">
                       <div>
                         <p className="text-2xl font-bold text-primary">
                           {result.file_metadata_json.processing_summary.total_files}
@@ -406,7 +426,7 @@ export function DocumentAnalyzer() {
               )}
 
               {/* Analysis Summary */}
-              <Card className="border-border/50">
+              <Card className="border-border/50 bg-[#0f1720]/90 shadow-[0_24px_70px_rgba(15,23,42,0.16)] transition-transform duration-300 hover:-translate-y-0.5">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Shield className="h-5 w-5" />
@@ -415,16 +435,26 @@ export function DocumentAnalyzer() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    {result.policy_name && result.policy_name.trim() && result.policy_name !== "null" && (
+                    {result.policy_name && result.policy_name.trim() && result.policy_name !== "null" ? (
                       <div>
                         <Label className="text-sm text-muted-foreground">Policy Name</Label>
-                        <p className="font-medium">{result.policy_name}</p>
+                        <p className="font-medium text-white">{result.policy_name}</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Policy Name</Label>
+                        <p className="text-sm text-slate-500 italic">Not provided</p>
                       </div>
                     )}
-                    {result.email && (
+                    {result.email ? (
                       <div>
                         <Label className="text-sm text-muted-foreground">Email</Label>
-                        <p className="font-medium">{result.email}</p>
+                        <p className="font-medium text-white">{result.email}</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Email</Label>
+                        <p className="text-sm text-slate-500 italic">Not provided</p>
                       </div>
                     )}
                   </div>
@@ -433,7 +463,7 @@ export function DocumentAnalyzer() {
 
               {/* File Details */}
               {result.file_metadata_json?.files && result.file_metadata_json.files.length > 0 && (
-                <Card className="border-border/50">
+                <Card className="border-border/50 bg-[#0f1720]/90 shadow-[0_24px_70px_rgba(15,23,42,0.16)] transition-transform duration-300 hover:-translate-y-0.5">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <FileText className="h-5 w-5" />
@@ -462,8 +492,8 @@ export function DocumentAnalyzer() {
               )}
 
               {/* AI Analysis */}
-              {(result.agent1_response || result.agent2_response || result.judge) && (
-                <Card className="border-border/50">
+              {(result.agent1_response || result.agent2_response || result.judge) ? (
+                <Card className="border-border/50 bg-[#0f1720]/90 shadow-[0_24px_70px_rgba(15,23,42,0.16)] transition-transform duration-300 hover:-translate-y-0.5 animate-appear-up">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Brain className="h-5 w-5" />
@@ -472,37 +502,36 @@ export function DocumentAnalyzer() {
                   </CardHeader>
                   <CardContent className="space-y-6">
                     <div className="space-y-4">
-                      {result.agent1_response && (
+                      {result.agent1_response ? (
                         <div>
                           <div className="flex items-center gap-2 mb-3">
                             <Badge variant="secondary">Agent 1</Badge>
                           </div>
                           {renderAgentResponse(result.agent1_response)}
                         </div>
-                      )}
+                      ) : null}
 
                       {result.agent1_response && result.agent2_response && <Separator />}
 
-                      {result.agent2_response && (
+                      {result.agent2_response ? (
                         <div>
                           <div className="flex items-center gap-2 mb-3">
                             <Badge variant="secondary">Agent 2</Badge>
                           </div>
                           {renderAgentResponse(result.agent2_response)}
                         </div>
-                      )}
+                      ) : null}
 
                       {/* Final Assessment */}
                       {(() => {
                         const fa = getFinalAssessment(result.judge)
-                        if (!fa) return null
+                        if (!fa) return <p className="text-sm text-slate-500 italic">Assessment pending...</p>
 
-                        // choose semantic color token for status text
                         const statusClass =
                           fa.status?.toLowerCase() === "covered"
-                            ? "text-accent"
+                            ? "text-emerald-400"
                             : fa.status?.toLowerCase() === "not covered"
-                              ? "text-destructive"
+                              ? "text-orange-400"
                               : "text-muted-foreground"
 
                         return (
@@ -528,13 +557,13 @@ export function DocumentAnalyzer() {
                     </div>
                   </CardContent>
                 </Card>
-              )}
+              ) : null}
 
               {/* Individual Document Texts */}
               {result.individual_cleaned_texts &&
                 result.individual_cleaned_texts.length > 0 &&
                 result.individual_cleaned_texts.map((text, index) => (
-                  <Card key={index} className="border-border/50">
+                  <Card key={index} className="border border-white/10 bg-slate-900/90 shadow-[0_24px_70px_rgba(15,23,42,0.16)] transition-transform duration-300 hover:-translate-y-0.5 animate-appear-up">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <FileText className="h-5 w-5" />
@@ -551,7 +580,7 @@ export function DocumentAnalyzer() {
 
               {/* Combined OCR Text */}
               {result.combined_ocr_text && (
-                <Card className="border-border/50">
+                <Card className="border-border/50 bg-[#0f1720]/90 shadow-[0_24px_70px_rgba(15,23,42,0.16)] transition-transform duration-300 hover:-translate-y-0.5">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <FileText className="h-5 w-5" />
