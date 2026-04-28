@@ -448,7 +448,7 @@ Agent 2 Response:
 {agent2_response}
 
 Your tasks:
-1) Determine whether the two responses substantively AGREE on the answer.
+1) Determine the final insurance coverage status based on the agents' findings.
 2) Determine how fully the (agreed) answer addresses the user's query.
 
 Output REQUIREMENTS:
@@ -460,16 +460,16 @@ Output REQUIREMENTS:
   "rationale": string    // concise, <= 60 words, no new facts
 }}
 
-Guidance for "status":
-- "Covered": The two responses agree and jointly answer the user's query correctly and completely.
-- "Partially Covered": The two responses agree on some parts, but coverage is incomplete or missing notable elements the user needs.
-- "Not Covered": The responses do not answer the query, or they contradict such that a clear, correct answer is not established.
-- "Unsure": Insufficient detail, ambiguous, or contradictory such that you cannot determine agreement or coverage.
+STRICT STATUS GUIDELINES:
+- "Not Covered": If EITHER agent correctly identifies that the treatment is an EXCLUSION or explicitly not covered in the policy, the final status MUST be "Not Covered".
+- "Covered": Both agents agree the treatment is covered and cite supporting policy text.
+- "Partially Covered": The responses agree on some parts, but coverage is limited (e.g., sub-limits apply). Do NOT use this for full exclusions.
+- "Unsure": Insufficient detail in the policy to make a determination, or the agents completely contradict each other without citing clear exclusions.
 
 Confidence heuristic:
-- Start from agreement strength between Agent 1 and Agent 2.
-- Increase if the agreed answer directly covers all requested elements with specific, consistent details.
-- Decrease for hedging, ambiguity, contradictions, or missing key elements.
+- High confidence (0.8 - 1.0) if an explicit exclusion is found by either agent.
+- High confidence if both agents agree and cite clear evidence.
+- Decrease for ambiguity or missing key elements.
 """
 
     body = {
